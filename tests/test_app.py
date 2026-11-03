@@ -2,6 +2,10 @@ from pathlib import Path
 from streamlit.testing.v1 import AppTest
 from opportunityradar.storage import load_profile
 
+def cards(app):
+    return [entry.value for entry in app.markdown if '<article class="opportunity-card">' in entry.value]
+
+
 APP = Path(__file__).resolve().parents[1] / 'app.py'
 
 
@@ -10,7 +14,7 @@ def test_navigation_profile_and_filters(tmp_path, monkeypatch):
     monkeypatch.setenv('OPPORTUNITYRADAR_DB', str(db))
     app = AppTest.from_file(str(APP)).run()
     assert not app.exception
-    assert app.metric[0].value == '6'
+    assert app.metric[0].value == '0'
     app.sidebar.radio[0].set_value('Your profile').run()
     app.button[0].click().run()
     assert app.error[0].value == 'Please enter your country.'
@@ -22,11 +26,11 @@ def test_navigation_profile_and_filters(tmp_path, monkeypatch):
     assert load_profile(db)['country'] == 'Pakistan'
     app.sidebar.radio[0].set_value('Opportunities').run()
     app.radio[0].set_value('Demo').run()
-    assert len(app.subheader) == 2
+    assert len(cards(app)) == 2
     app.multiselect[0].set_value(['Internship']).run()
-    assert len(app.subheader) == 1
+    assert len(cards(app)) == 1
     app.text_input[0].set_value('unmatched search').run()
-    assert len(app.subheader) == 0
+    assert len(cards(app)) == 0
     assert any('No demo opportunities match' in message.value for message in app.info)
     assert not app.exception
     # A fresh session reads the persisted profile.
@@ -46,16 +50,42 @@ def test_discovery_is_explicit_and_survives_reruns(tmp_path, monkeypatch):
     app.sidebar.radio[0].set_value('Opportunities').run()
     assert not app.exception
     client.search.assert_not_called()
-    app.checkbox[0].check().run()
+    app.checkbox(key='browse_keyless').check()
     app.button[0].click().run()
     assert not app.exception
     assert client.search.call_count == 1
-    assert len(app.subheader) == 1
-    assert app.subheader[0].value == 'Student hackathon'
-    app.text_input[0].set_value('student').run()
+    assert len(cards(app)) == 1
+    assert 'Student hackathon' in cards(app)[0]
+    app.text_input(key='browse_filter').set_value('student').run()
     assert client.search.call_count == 1
+    app.checkbox(key='browse_keyless').check()
     app.button[0].click().run()
     assert client.search.call_count == 1  # cache, including after filter rerun
-    assert any('Cached search' in entry.value for entry in app.info)
+    assert any('Cached search' in entry.value for entry in app.success)
     app.radio[0].set_value('Demo').run()
-    assert not any(entry.value == 'Student hackathon' for entry in app.subheader)
+    assert not any('Student hackathon' in entry for entry in cards(app))
+
+
+def test_dashboard_search_and_quick_navigation(tmp_path, monkeypatch):
+    from unittest.mock import MagicMock
+    from opportunityradar import discovery
+    monkeypatch.setenv('OPPORTUNITYRADAR_DB', str(tmp_path / 'dashboard.sqlite3'))
+    client = MagicMock()
+    client.search.return_value = {'results': [{'title': 'Research internship', 'url': 'https://example.org/apply', 'content': 'Research for students'}]}
+    monkeypatch.setattr(discovery, 'TavilyClient', MagicMock(return_value=client))
+    app = AppTest.from_file(str(APP)).run()
+    client.search.assert_not_called()
+    app.text_input(key='dashboard_query').set_value('robotics')
+    app.checkbox(key='dashboard_keyless').check()
+    app.button[0].click().run()
+    assert not app.exception
+    assert 'robotics' in client.search.call_args.kwargs['query']
+    assert app.metric[0].value == '1'
+    assert len(cards(app)) == 1
+    app.button(key='quick_Internship').click().run()
+    assert not app.exception
+    assert app.sidebar.radio[0].value == 'Opportunities'
+    assert app.multiselect(key='category_filter').value == ['Internship']
+    assert len(cards(app)) == 1
+    app.selectbox(key='sort_order').set_value('Title A–Z').run()
+    assert client.search.call_count == 1

@@ -103,3 +103,17 @@ Storage adds `discovered`, `search_cache`, and `search_attempts` tables without 
 ## Validation
 
 Run `python -m pytest -q`. All API tests use mocked clients and temporary SQLite databases, including invalid keys, keyless limits, rate limits, network failures, empty/malformed responses, missing fields, malformed dates, duplicates, cache expiry and the persistent local request limit. Streamlit tests check that only the discovery button can initiate a search. Automated tests do not consume live API credits. Live provider availability must be checked with the manual workflow above.
+
+## Redesigned student workspace
+
+The light theme uses restrained blue accents, a compact sidebar, and responsive layouts. The dashboard includes an explicit keyword discovery form, real saved-result statistics, category shortcuts, and the three most recently discovered records. Demo records are never counted as real discoveries.
+
+The Opportunities page uses a single-column list with consistent collapsed card bodies. Descriptions are shortened to at most 180 characters and clamped to two desktop lines or three mobile lines. Each card shows category, source status, organization, location, deadline and funding, plus a View Opportunity action. Missing fields say “not listed”; discovered records remain unverified. Full titles, descriptions, URLs, discovery timestamps, eligibility explanations and ranking hints are accessible under **Details & source**. Older saved snippets retain the text originally stored; newly discovered snippets retain their full provider description.
+
+Use **Search this collection** for local filtering. **Personalize filters** retains profile interest/remote/funded filters. Sort by Recommended, Recently discovered, Deadline soonest (unknown dates last), or Title A–Z. The discovery form is separate: only its submit button invokes Tavily. Keyword input combines with your chosen topic and saved profile. Keyless access and usage guidance are under **Search settings**. Loading, empty, success and error states remain visible without repeating technical metadata on every card.
+
+Recommended ordering uses transparent heuristics: application/careers/registration paths and academic domains receive a boost; guide/roundup titles, social domains, older title years, past deadlines and weak topic relevance receive penalties. Queries request official organizer/application pages. These signals do **not** prove a source is official, current, relevant or verified, and low-ranked records are retained for review. No companies, deadlines or eligibility requirements are invented. Ranking applies to existing saved records as well as new results.
+
+UI helpers live in `opportunityradar/components.py`; escaped card formatting in `presentation.py`; static responsive CSS in `assets/style.css`; pure ranking/sorting helpers in `ranking.py`. External strings are escaped before entering card markup; full snippets use plain text, and source buttons accept only valid HTTP(S) URLs. No API secrets appear in markup.
+
+Validation includes mocked discovery/profile/navigation regressions, dashboard submit and quick-category flows, sort behavior, source-quality heuristics, malformed dates, and HTML-escaping checks. Desktop and mobile layouts were inspected with local Chromium; browser tooling is not an app dependency. The redesign was implemented with OpenAI Codex assistance. No email automation was added.
