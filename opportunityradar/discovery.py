@@ -30,7 +30,7 @@ def resolve_api_key(secrets=None):
     return os.getenv("TAVILY_API_KEY") or (secrets or {}).get("TAVILY_API_KEY") or None
 
 
-def build_query(topic, profile=None):
+def build_query(topic, profile=None, keyword=""):
     profile = profile or {}
     parts = [TOPICS[topic][1], str(datetime.now(timezone.utc).year)]
     for field in ("country", "education_level"):
@@ -41,6 +41,9 @@ def build_query(topic, profile=None):
         parts.append("remote")
     if profile.get("funded_only"):
         parts.append("funded")
+    if keyword.strip():
+        parts.append(keyword.strip()[:160])
+    parts.append("official organizer application page -guide -tips -roundup")
     return " ".join(parts)
 
 
@@ -75,7 +78,7 @@ def parse_result(result, category, discovered_at):
     return dict(
         title=title or "Untitled search result", organization=labeled_value(content, "Organization"),
         category=category, category_basis="Search topic (unverified)",
-        summary=content[:1200] or "No description supplied by the search provider.",
+        summary=content or "No description supplied by the search provider.",
         source_url=url, deadline=None, remote={"remote": True, "in-person": False}.get((location or "").casefold()),
         funded={"funded": True, "unfunded": False}.get((funding or "").casefold()),
         eligibility_requirements=labeled_value(content, "Eligibility"),
@@ -85,11 +88,11 @@ def parse_result(result, category, discovered_at):
     )
 
 
-def discover(topic, profile=None, api_key=None, allow_keyless=False, path=None):
+def discover(topic, profile=None, api_key=None, allow_keyless=False, path=None, keyword=""):
     """One explicit topic search. Cache hits do not consume request allowance."""
     if not api_key and not allow_keyless:
         raise DiscoveryError("Set TAVILY_API_KEY in your environment or Streamlit secrets, or enable limited keyless development.")
-    query = build_query(topic, profile)
+    query = build_query(topic, profile, keyword)
     cached = cached_search(query, path)
     if cached is not None:
         return {"added": save_discovered(cached, path), "results": len(cached), "cached": True}

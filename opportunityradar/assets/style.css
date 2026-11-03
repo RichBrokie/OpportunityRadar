@@ -1,0 +1,32 @@
+/* Static layout only. External content is escaped in presentation.py. */
+.block-container {max-width: 1100px; padding-top: 2.6rem; padding-bottom: 4rem;}
+h1 {font-size: 2.5rem !important; letter-spacing: -.045em; font-weight: 700 !important;}
+h2 {letter-spacing: -.025em; font-size: 1.45rem !important;}
+h3 {letter-spacing: -.015em;}
+[data-testid="stSidebar"] {background: #fff; border-right: 1px solid #e6eaf0;}
+[data-testid="stSidebar"] [role="radiogroup"] {gap: .6rem;}
+[data-testid="stSidebar"] label {padding: .45rem .2rem;}
+[data-testid="stMetric"] {background: #fff; border: 1px solid #e6eaf0; border-radius: 12px; padding: 18px 22px;}
+[data-testid="stVerticalBlockBorderWrapper"] {border-radius: 12px;}
+[data-testid="stTextInput"] input {min-height: 46px;}
+[data-testid="stBaseButton-primary"] {min-height: 44px;}
+a:focus-visible, button:focus-visible {outline: 3px solid #93b4f8 !important; outline-offset: 3px;}
+.opportunity-card {padding: 4px 4px 0; color: #17243a;}
+.card-tags {display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-bottom: 10px;}
+.category-tag {color: #2458b8; background: #eff5ff; padding: 4px 10px; border-radius: 5px; font-size: .75rem; font-weight: 600;}
+.status-tag {color: #64748b; font-size: .7rem; letter-spacing: .035em;}
+.opportunity-card h3 {font-size: 1.15rem; line-height: 1.45; margin: 0; padding: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;}
+.opportunity-card .organization {font-size: .86rem; color: #526174; margin: 3px 0 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;}
+.card-description {font-size: .9rem; color: #526174; line-height: 1.5; height: 2.7rem; margin: 0 0 10px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;}
+.card-facts {display: flex; flex-wrap: wrap; gap: 6px 20px; color: #526174; font-size: .78rem; padding-bottom: 8px;}
+@media(max-width: 640px) {
+ .block-container {padding: 1.5rem 1rem 3rem;}
+ h1 {font-size: 1.9rem !important;}
+ .opportunity-card h3 {white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;}
+ .card-description {height: 4.05rem; -webkit-line-clamp: 3;}
+ .card-facts {gap: 6px 12px;}
+ [data-testid="stHorizontalBlock"] {flex-wrap: wrap;}
+ [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] {min-width: min(100%, 240px); flex: 1 1 240px;}
+}
+[data-testid="stVerticalBlockBorderWrapper"]:has(.opportunity-card) {background: #fff;}
+[data-testid="stSidebar"] [role="radiogroup"] label:has(input:checked) {background: #eff5ff; border-radius: 8px; color: #2458b8;}
