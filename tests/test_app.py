@@ -21,6 +21,7 @@ def test_navigation_profile_and_filters(tmp_path, monkeypatch):
     assert not app.exception
     assert load_profile(db)['country'] == 'Pakistan'
     app.sidebar.radio[0].set_value('Opportunities').run()
+    app.radio[0].set_value('Demo').run()
     assert len(app.subheader) == 2
     app.multiselect[0].set_value(['Internship']).run()
     assert len(app.subheader) == 1
@@ -31,3 +32,30 @@ def test_navigation_profile_and_filters(tmp_path, monkeypatch):
     # A fresh session reads the persisted profile.
     fresh = AppTest.from_file(str(APP)).run()
     assert fresh.metric[2].value == 'Saved'
+
+
+def test_discovery_is_explicit_and_survives_reruns(tmp_path, monkeypatch):
+    from unittest.mock import MagicMock
+    from opportunityradar import discovery
+    monkeypatch.setenv('OPPORTUNITYRADAR_DB', str(tmp_path / 'discovery-ui.sqlite3'))
+    monkeypatch.delenv('TAVILY_API_KEY', raising=False)
+    client = MagicMock()
+    client.search.return_value = {'results': [{'title': 'Student hackathon', 'url': 'https://example.org/event', 'content': None}]}
+    monkeypatch.setattr(discovery, 'TavilyClient', MagicMock(return_value=client))
+    app = AppTest.from_file(str(APP)).run()
+    app.sidebar.radio[0].set_value('Opportunities').run()
+    assert not app.exception
+    client.search.assert_not_called()
+    app.checkbox[0].check().run()
+    app.button[0].click().run()
+    assert not app.exception
+    assert client.search.call_count == 1
+    assert len(app.subheader) == 1
+    assert app.subheader[0].value == 'Student hackathon'
+    app.text_input[0].set_value('student').run()
+    assert client.search.call_count == 1
+    app.button[0].click().run()
+    assert client.search.call_count == 1  # cache, including after filter rerun
+    assert any('Cached search' in entry.value for entry in app.info)
+    app.radio[0].set_value('Demo').run()
+    assert not any(entry.value == 'Student hackathon' for entry in app.subheader)

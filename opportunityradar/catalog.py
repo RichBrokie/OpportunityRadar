@@ -3,7 +3,7 @@ from datetime import date
 
 INTERESTS = ["Artificial intelligence", "Web development", "Cybersecurity", "Data science", "Systems", "Human-computer interaction"]
 LEVELS = ["High school", "Undergraduate", "Master's", "PhD"]
-CATEGORIES = ["Internship", "Research", "Scholarship", "Fellowship", "Hackathon"]
+CATEGORIES = ["Internship", "Research", "Scholarship", "Fellowship", "Hackathon", "Software opportunity"]
 
 
 def demo_opportunities():
@@ -22,21 +22,29 @@ def demo_opportunities():
 def filter_opportunities(items, categories=(), keyword="", interests=(), remote_only=False, funded_only=False):
     query = keyword.strip().casefold()
     return [item for item in items
-            if (not categories or item["category"] in categories)
-            and (not query or query in " ".join([item["title"], item["organization"], item["summary"]]).casefold())
-            and (not interests or set(interests).intersection(item["interests"]))
-            and (not remote_only or item["remote"])
-            and (not funded_only or item["funded"])]
+            if (not categories or item.get("category") in categories)
+            and (not query or query in " ".join(str(item.get(k) or "") for k in ("title", "organization", "summary")).casefold())
+            and (not interests or set(interests).intersection((item.get("interests") or [])))
+            and (not remote_only or item.get("remote") is True)
+            and (not funded_only or item.get("funded") is True)]
 
 
 def eligibility(item, profile, today=None):
     """A basic country/education check, never a verified eligibility decision."""
-    if date.fromisoformat(item["deadline"]) < (today or date.today()):
+    if not item.get("is_demo", False):
+        return "Unverified", "Search results cannot establish eligibility. Check the original source and its current requirements."
+    try:
+        deadline = date.fromisoformat(item.get("deadline") or "")
+    except (ValueError, TypeError):
+        deadline = None
+    if deadline and deadline < (today or date.today()):
         return "Deadline passed", "This example deadline has passed."
     if not profile:
         return "Profile needed", "Save your profile to compare the demo criteria."
-    if item["countries"] and profile["country"].strip().casefold() not in {c.casefold() for c in item["countries"]}:
+    if item.get("countries") and profile["country"].strip().casefold() not in {c.casefold() for c in item["countries"]}:
         return "Criteria mismatch", "Example country requirement: " + ", ".join(item["countries"])
+    if not item.get("education_levels") or item.get("countries") is None:
+        return "Unknown", "Eligibility requirements are incomplete."
     if profile["education_level"] not in item["education_levels"]:
         return "Criteria mismatch", "Example education requirement: " + ", ".join(item["education_levels"])
     return "Potential match", "Country and education match the demo rules. Full eligibility is unverified."
