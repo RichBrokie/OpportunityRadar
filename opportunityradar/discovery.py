@@ -10,6 +10,7 @@ from tavily.errors import (InvalidAPIKeyError, UsageLimitExceededError,
                           TavilyKeylessLimitError, ForbiddenError, TimeoutError as TavilyTimeout)
 
 from opportunityradar.catalog import INTERESTS
+from opportunityradar.quality import LIKELY, REVIEW, IRRELEVANT, normalize_record
 from opportunityradar.storage import cached_search, reserve_search, store_search, save_discovered
 
 TOPICS = {
@@ -52,8 +53,11 @@ def text(value):
 
 
 def valid_source(url):
+    if not isinstance(url, str) or re.search(r"[\s\\\x00-\x1f\x7f]", url):
+        return False
     try:
         parsed = urlsplit(url)
+        parsed.port  # Reject malformed ports as well as malformed hosts.
         return parsed.scheme in {"https", "http"} and bool(parsed.hostname) and not parsed.username and not parsed.password
     except ValueError:
         return False
@@ -71,21 +75,28 @@ def parse_result(result, category, discovered_at):
     url = text(result.get("url"))
     if not valid_source(url):
         return None
-    content = text(result.get("content"))
+    content = result.get("content") if isinstance(result.get("content"), str) else ""
     title = text(result.get("title"))
     location = labeled_value(content, "Location")
     funding = labeled_value(content, "Funding")
-    return dict(
+    return normalize_record(dict(
         title=title or "Untitled search result", organization=labeled_value(content, "Organization"),
         category=category, category_basis="Search topic (unverified)",
-        summary=content or "No description supplied by the search provider.",
+        raw_snippet=content, location=location, funding_details=funding,
         source_url=url, deadline=None, remote={"remote": True, "in-person": False}.get((location or "").casefold()),
         funded={"funded": True, "unfunded": False}.get((funding or "").casefold()),
         eligibility_requirements=labeled_value(content, "Eligibility"),
         countries=None, education_levels=None,
         interests=[i for i in INTERESTS if i.casefold() in (title + " " + content).casefold()],
         discovered_at=discovered_at, verified=False, is_demo=False, status="DISCOVERED",
-    )
+    ))
+
+
+def save_search_results(records, found, path, *, cached):
+    counts = save_discovered(records, path, with_counts=True)
+    return dict(added=counts["added"], results=len(records), found=found,
+                accepted=counts[LIKELY], review=counts[REVIEW], irrelevant=counts[IRRELEVANT],
+                duplicates=counts["duplicates"], invalid=found - len(records) + counts["invalid"], cached=cached)
 
 
 def discover(topic, profile=None, api_key=None, allow_keyless=False, path=None, keyword=""):
@@ -95,7 +106,10 @@ def discover(topic, profile=None, api_key=None, allow_keyless=False, path=None, 
     query = build_query(topic, profile, keyword)
     cached = cached_search(query, path)
     if cached is not None:
-        return {"added": save_discovered(cached, path), "results": len(cached), "cached": True}
+        # Old caches stored a list; new envelopes also retain the provider count.
+        records = cached if isinstance(cached, list) else cached["records"]
+        found = len(records) if isinstance(cached, list) else cached["found"]
+        return save_search_results(records, found, path, cached=True)
     if not reserve_search(path):
         raise DiscoveryError("Local limit reached: 12 API requests per rolling hour. Cached searches remain available; try again later.")
     client = None
@@ -123,8 +137,9 @@ def discover(topic, profile=None, api_key=None, allow_keyless=False, path=None, 
     if not isinstance(response, dict) or not isinstance(response.get("results"), list):
         raise DiscoveryError("Tavily returned an unexpected response. No results were saved.")
     timestamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
-    records = [record for row in response["results"][:5]
+    rows = response["results"][:5]
+    records = [record for row in rows
                if (record := parse_result(row, TOPICS[topic][0], timestamp)) is not None]
-    added = save_discovered(records, path)
-    store_search(query, records, path)
-    return {"added": added, "results": len(records), "cached": False}
+    outcome = save_search_results(records, len(rows), path, cached=False)
+    store_search(query, {"records": records, "found": len(rows)}, path)
+    return outcome

@@ -23,7 +23,8 @@ def setup(tmp_path, monkeypatch):
 def test_search_persistence_cache_and_separation(setup):
     path, client, _ = setup
     result = discovery.discover('Summer research', {'country': 'Pakistan', 'education_level': 'Undergraduate', 'interests': ['Systems']}, allow_keyless=True, path=path)
-    assert result == {'added': 1, 'results': 1, 'cached': False}
+    assert result == {'added': 1, 'results': 1, 'cached': False, 'found': 1,
+                      'accepted': 0, 'review': 1, 'irrelevant': 0, 'duplicates': 0, 'invalid': 0}
     record = storage.load_discovered(path)[0]
     assert record['deadline'] is None
     assert record['organization'] == 'Example Lab'
@@ -122,3 +123,43 @@ def test_malformed_deadlines(deadline):
 def test_deadline_never_verified_by_snippet():
     record = discovery.parse_result({'url': 'https://example.org/job', 'content': 'Deadline: 2028-05-01', 'verified': True}, 'Internship', '2026-11-03T00:00:00+00:00')
     assert record['deadline'] is None and record['verified'] is False
+
+
+def test_classification_counts_duplicates_and_cached_counts(setup):
+    path, client, _ = setup
+    client.search.return_value = {'results': [
+        {'title': 'Cedar internship', 'url': 'https://school.edu/apply', 'content': 'Undergraduate students work for 12 weeks.'},
+        {'title': 'Cedar internship', 'url': 'https://school.edu/apply?utm_source=test', 'content': 'Undergraduate students work for 12 weeks.'},
+        {'title': 'Internships', 'url': 'https://example.org/opportunities', 'content': None},
+        {'title': 'Top 10 internships', 'url': 'https://example.org/guide', 'content': 'Advice for students'},
+        {'url': 'javascript:alert(1)'},
+    ]}
+    first = discovery.discover('CS internships', allow_keyless=True, path=path)
+    assert first == dict(added=3, results=4, found=5, accepted=1, review=1,
+                         irrelevant=1, duplicates=1, invalid=1, cached=False)
+    assert len(storage.load_discovered(path)) == 3
+    second = discovery.discover('CS internships', allow_keyless=True, path=path)
+    assert second == dict(added=0, results=4, found=5, accepted=0, review=0,
+                          irrelevant=0, duplicates=4, invalid=1, cached=True)
+    client.search.assert_called_once()
+
+
+def test_legacy_cache_reused_without_api_or_usage_attempt(setup):
+    path, client, _ = setup
+    legacy = dict(title='Cedar internship', source_url='https://school.edu/apply',
+                  summary='Apply for a 12 week student placement.', is_demo=False)
+    storage.store_search(discovery.build_query('CS internships'), [legacy], path)
+    result = discovery.discover('CS internships', allow_keyless=True, path=path)
+    assert result['cached'] and result['accepted'] == 1
+    client.search.assert_not_called()
+    record = storage.load_discovered(path)[0]
+    assert record['raw_snippet'] == legacy['summary']
+    with storage.connection(path) as db:
+        assert db.execute('SELECT COUNT(*) FROM search_attempts').fetchone()[0] == 0
+
+
+@pytest.mark.parametrize('url', [None, 1, 'javascript:alert(1)', 'https://user:pass@example.org',
+                                'https://example.org:bad/apply', 'https://example.org\\@evil.org',
+                                'https://example.org/\nattack'])
+def test_unsafe_source_urls(url):
+    assert not discovery.valid_source(url)

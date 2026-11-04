@@ -10,7 +10,7 @@ def test_card_escapes_untrusted_data_and_clamps_summary():
     assert '<img' not in html and '&lt;img' in html
     assert len(short_description(attack * 30)) <= 180
     assert 'Unverified' in html
-    assert 'Not listed' in html
+    assert 'Unknown' in html
     assert 'https://' not in html
 
 
