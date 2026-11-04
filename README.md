@@ -52,6 +52,10 @@ opportunityradar/
   storage.py                  SQLite initialization and profile/catalog persistence
   duplicates.py               Pure duplicate-detection helper
   discovery.py                Tavily queries, conservative extraction, safe errors
+  quality.py                  Deterministic snippet cleaning and relevance classification
+  components.py               Shared Streamlit cards, forms and discovery status
+  presentation.py             Escaped card markup and compact formatting
+  ranking.py                  Explainable sorting within each classification
 .streamlit/config.toml        Theme and local server defaults
 tests/test_core.py            Filtering, duplicates, eligibility, storage tests
 tests/test_app.py             Streamlit navigation, profile, filters and explicit discovery tests
@@ -63,7 +67,7 @@ AGENTS.md                    Guidance for future development
 
 On first launch, `storage.initialize()` creates `data/radar.sqlite3` and seeds six demo records. Subsequent launches retain the profile and do not duplicate the seed records. Tables store each small record as JSON to keep this prototype easy to follow. `app.py` calls the pure catalog functions to filter records and explain matches.
 
-The database and virtual environment are ignored by Git. Set `OPPORTUNITYRADAR_DB` in your shell to choose another database path; `.env` files are **not automatically loaded**. To reset your local demo, stop the app and delete `data/radar.sqlite3` (this also deletes your saved profile), then restart it.
+The database and virtual environment are ignored by Git. Set `OPPORTUNITYRADAR_DB` in your shell to choose another database path; `.env` files are **not automatically loaded**. Keep your existing database when upgrading. To experiment with a fresh workspace, choose a different database path; do not delete your saved profile and discoveries.
 
 ## Development notes
 
@@ -84,7 +88,7 @@ Do not paste keys into chat, source code, or commits. `.env.example` documents s
 
 1. Save a profile. Country, education (including undergraduate), interests, and remote/funded preferences shape queries. These profile fields are sent to Tavily when searching.
 2. Open **Opportunities → Discovered**, choose one of the six search topics, and click **Discover opportunities**. Each click searches one topic: internships, summer research, scholarships, fellowships, hackathons, or remote software development.
-3. Check the search status, new-result count, DISCOVERED labels, UTC discovery timestamps, and original source links. Results are saved in SQLite and persist across sessions.
+3. Check the search counts and the **Likely opportunity**, **Needs review**, and **Irrelevant** views. Open **More details** for raw snippets, classification reasons, UTC discovery timestamps and original URLs. Results are saved in SQLite and persist across sessions.
 4. Repeat the same query within 15 minutes to check the cache. Change a filter or navigate away/back: this must not make an API request.
 5. Switch to **Demo** to see the separate fictional collection. Unknown remote/funding or interest values do not pass strict filters; clear filters if nothing appears.
 
@@ -92,7 +96,7 @@ Each uncached search uses basic search, at most five results, a 20-second timeou
 
 ## What discovery does and does not verify
 
-The SDK supplies titles, snippets, and URLs. The app stores the original source URL and labels every result **DISCOVERED · UNVERIFIED**. Search results can include stale pages, listing aggregators, or irrelevant results. A source link is not evidence that applications are open.
+The SDK supplies titles, snippets, and URLs. The app stores the original source URL and labels each discovered card **Unverified**. Search results can include stale pages, listing aggregators, or irrelevant results. A source link is not evidence that applications are open. Actions say **View source**, never Apply.
 
 Organization, location, funding, and eligibility are captured only from explicit `Organization:`, `Location:`, `Funding:`, and `Eligibility:` lines in the snippet. Only exact `remote` / `in-person` and `funded` / `unfunded` values become booleans; other values remain unknown. These fields are still unverified snippet claims. Interests use literal matches against the supported interest names. Category is the selected search topic, not a verified classification. No organization is inferred from a domain name.
 
@@ -108,12 +112,32 @@ Run `python -m pytest -q`. All API tests use mocked clients and temporary SQLite
 
 The light theme uses restrained blue accents, a compact sidebar, and responsive layouts. The dashboard includes an explicit keyword discovery form, real saved-result statistics, category shortcuts, and the three most recently discovered records. Demo records are never counted as real discoveries.
 
-The Opportunities page uses a single-column list with consistent collapsed card bodies. Descriptions are shortened to at most 180 characters and clamped to two desktop lines or three mobile lines. Each card shows category, source status, organization, location, deadline and funding, plus a View Opportunity action. Missing fields say “not listed”; discovered records remain unverified. Full titles, descriptions, URLs, discovery timestamps, eligibility explanations and ranking hints are accessible under **Details & source**. Older saved snippets retain the text originally stored; newly discovered snippets retain their full provider description.
+The Opportunities page uses a single-column list with consistent collapsed card bodies. Descriptions are cleaned and shortened to fewer than 180 characters and clamped to two lines on desktop and mobile. Each card shows category, one unobtrusive Unverified label, organization, location, deadline and funding, plus **View source**. Unknown fields explicitly say “Unknown.” Full titles, raw snippets, original URLs, discovery timestamps, detailed eligibility, classification explanations and ranking hints are accessible under **More details**. Demo cards remain explicitly fictional in their separate collection.
 
 Use **Search this collection** for local filtering. **Personalize filters** retains profile interest/remote/funded filters. Sort by Recommended, Recently discovered, Deadline soonest (unknown dates last), or Title A–Z. The discovery form is separate: only its submit button invokes Tavily. Keyword input combines with your chosen topic and saved profile. Keyless access and usage guidance are under **Search settings**. Loading, empty, success and error states remain visible without repeating technical metadata on every card.
 
-Recommended ordering uses transparent heuristics: application/careers/registration paths and academic domains receive a boost; guide/roundup titles, social domains, older title years, past deadlines and weak topic relevance receive penalties. Queries request official organizer/application pages. These signals do **not** prove a source is official, current, relevant or verified, and low-ranked records are retained for review. No companies, deadlines or eligibility requirements are invented. Ranking applies to existing saved records as well as new results.
+Recommended ordering within each classification uses transparent heuristics: application/careers/registration paths and academic domains receive a boost; guide/roundup titles, social domains, older title years, past deadlines and weak topic relevance receive penalties. Queries request official organizer/application pages. These signals do **not** prove a source is official, current, relevant or verified. No companies, deadlines or eligibility requirements are invented. Ranking applies to existing saved records as well as new results.
 
 UI helpers live in `opportunityradar/components.py`; escaped card formatting in `presentation.py`; static responsive CSS in `assets/style.css`; pure ranking/sorting helpers in `ranking.py`. External strings are escaped before entering card markup; full snippets use plain text, and source buttons accept only valid HTTP(S) URLs. No API secrets appear in markup.
 
-Validation includes mocked discovery/profile/navigation regressions, dashboard submit and quick-category flows, sort behavior, source-quality heuristics, malformed dates, and HTML-escaping checks. Desktop and mobile layouts were inspected with local Chromium; browser tooling is not an app dependency. The redesign was implemented with OpenAI Codex assistance. No email automation was added.
+Validation includes mocked discovery/profile/navigation regressions, dashboard submit and quick-category flows, sort behavior, source-quality heuristics, malformed dates, and HTML-escaping checks. Browser tooling is not an app dependency. The redesign and result-quality improvements were implemented with OpenAI Codex assistance. No email automation was added.
+
+## Result quality and review boundaries
+
+New records store the untouched provider text in `raw_snippet`, separately from the cleaned `summary`. Deterministic Python rules remove markup (including script/style content), embedded URLs, repeated sentences, explicit metadata lines, common navigation and boilerplate. Summaries repeat neither the title nor organization when they occur as standalone snippet text. Truncation preserves words where possible; the full raw text remains available as plain text. Cleaning does not generate facts or call an LLM.
+
+Classification is conservative and independent of ranking:
+
+- **Likely opportunity** requires a specific singular position/programme/event title, supporting snippet detail, and a direct application, jobs, programme or registration URL signal. This estimates relevance only; it does not establish authenticity or current availability.
+- **Needs review** retains sparse results, broad directories, uncertain listings and editorial pages with possible leads. A plausible title, academic domain or application URL alone is insufficient.
+- **Irrelevant** retains obvious guides, advice/listicles, social discussions and off-topic results separately. They never appear in the likely list or dashboard cards.
+
+Rules use English words and URL patterns. They can miss valid listings, misunderstand snippets, or accept misleading pages. A “likely” result can be old, closed or fraudulent. No page is labeled official. Dates mentioned in text remain unverified; verified deadlines and unprovided eligibility, location and funding stay unknown. Inspect the original source before making decisions. Category is still the chosen search topic, not an inferred fact.
+
+Search status counts up to five provider rows as **results found**, including duplicates and invalid rows. **Accepted as likely**, **sent for review**, and **saved as irrelevant** count only newly saved, nonduplicate records. Their sum is the number added. Duplicates within the response or already in the database are skipped and counted once per row, and malformed rows/unsafe URLs are counted as invalid. Thus `found = accepted + review + irrelevant + duplicates + invalid`. Cache replay normally adds zero records and reports duplicates; it does not spend another API attempt. Saved-collection counts are unique records before browsing filters; the “shown” count reflects active classification and filters. Demo records are excluded from all discovery counts.
+
+No database reset or destructive migration is required. Legacy discovered JSON is adapted on load: its saved summary becomes the raw-snippet fallback, and current cleaning/classification rules are applied on a copy. Old payloads, first-discovery timestamps, profile, demo catalog and request history remain intact. Text truncated by older versions cannot be recovered. New inserts store raw and derived fields plus a quality-rule version. Existing list-shaped cache entries still work until normal expiry; new cache envelopes also retain the original row count. Invalid rows discarded by old caches cannot be counted retrospectively. Duplicate records keep their original content and timestamps.
+
+For a manual check, search explicitly, inspect each classification, switch category and discovery-date sorting, open More details, then repeat the search to check duplicate/cache counts. Test desktop and a narrow mobile viewport, including long titles and snippets. All automated discovery tests use mocked Tavily responses and temporary SQLite databases; they do not require credentials or verify live provider availability.
+
+Result-quality validation: **72 pytest tests passed**, `pip check` and `git diff --check` passed. PR #3's original 35-test suite was also reproduced from commit `60a64f6`. Desktop (1280px) and mobile (390px) demo-card layouts were inspected in the in-app browser using a temporary database: equal collapsed card-body heights within each viewport and no horizontal page overflow. Actual provider responses, source authenticity and application availability remain unverified.

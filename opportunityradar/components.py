@@ -22,14 +22,18 @@ def opportunity_card(item, profile=None):
         st.markdown(card_html(item), unsafe_allow_html=True)
         url = item.get("source_url") or ""
         safe_url = valid_source(url)
-        action, details = st.columns([1, 3])
+        action, details = st.columns([1.4, 2.6])
         if safe_url:
-            action.link_button("View demo source ↗" if item.get("is_demo") else "View Opportunity ↗", url, type="primary")
-        with details.expander("Details & source"):
+            action.link_button("View demo source" if item.get("is_demo") else "View source", url)
+        else:
+            action.caption("Source unavailable")
+        with details.expander("More details"):
             st.text(item.get("title") or "Untitled opportunity")
-            st.text(item.get("summary") or "No description supplied.")
+            st.text("Organization: " + (item.get("organization") or "Unknown"))
+            st.caption("Description" if item.get("is_demo") else "Raw search snippet")
+            st.text(item.get("raw_snippet", item.get("summary")) or "No snippet supplied.")
             st.caption("Original source")
-            st.text(url if safe_url else "Source link unavailable")
+            st.text(url or "Source link unavailable")
             if safe_url:
                 st.text("Source website: " + (urlsplit(url).hostname or "Unknown"))
             status, reason = eligibility(item, profile)
@@ -37,8 +41,12 @@ def opportunity_card(item, profile=None):
             if item.get("is_demo"):
                 st.caption("This is a fictional example. Its organization, criteria and deadline are not real.")
             else:
+                st.text("Classification: " + item.get("classification", "Needs review"))
+                st.text(item.get("classification_reason") or "Insufficient information to classify this lead.")
                 st.text("Stated requirements: " + (item.get("eligibility_requirements") or "Unknown"))
-                st.caption("Search snippet only. Organization, location and funding claims are unverified; category comes from the search topic. Check the organizer's current page before applying.")
+                st.text("Stated location: " + (item.get("location") or "Unknown"))
+                st.text("Stated funding: " + (item.get("funding_details") or "Unknown"))
+                st.caption("Search snippet only. Category comes from the search topic. A listing or URL signal does not prove the page is official or applications are open. Confirm deadlines, eligibility, location and funding on the source page.")
                 st.text("Discovered: " + (item.get("discovered_at") or "Unknown") + " (UTC)")
                 _, signals = quality_signals(item)
                 st.text("Ranking hints: " + ("; ".join(signals) or "No strong page-quality signals"))
@@ -67,9 +75,12 @@ def discovery_panel(profile, prefix):
                                        api_key=key, allow_keyless=st.session_state[prefix + "_keyless"],
                                        keyword=st.session_state[prefix + "_query"])
                 message = (f"{'Cached search' if outcome['cached'] else 'Search complete'} · "
-                           f"{outcome['results']} results · {outcome['added']} new opportunities saved")
-                if not outcome['results']:
-                    message = "No results this time. Try a broader keyword or another topic."
+                           f"{outcome['found']} results found · {outcome['accepted']} accepted as likely · "
+                           f"{outcome['review']} sent for review · {outcome['irrelevant']} saved as irrelevant · "
+                           f"{outcome['duplicates']} duplicates skipped · {outcome['invalid']} invalid results skipped. "
+                           "Classification counts are newly saved records; accepted does not mean verified or open.")
+                if not outcome['found']:
+                    message += " No results this time. Try a broader keyword or another topic."
                 st.session_state["search_status"] = ("success", message, datetime.now(timezone.utc).isoformat(timespec="seconds"))
             except DiscoveryError as exc:
                 st.session_state["search_status"] = ("error", str(exc), datetime.now(timezone.utc).isoformat(timespec="seconds"))

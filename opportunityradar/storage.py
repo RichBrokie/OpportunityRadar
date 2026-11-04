@@ -7,6 +7,7 @@ import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
 from opportunityradar.catalog import demo_opportunities
+from opportunityradar.quality import CLASSIFICATIONS, normalize_record
 
 
 @contextmanager
@@ -52,22 +53,27 @@ def load_opportunities(path=None):
 
 def load_discovered(path=None):
     with connection(path) as db:
-        return [json.loads(row[0]) for row in db.execute("SELECT payload FROM discovered ORDER BY id DESC")]
+        return [normalize_record(json.loads(row[0])) for row in db.execute("SELECT payload FROM discovered ORDER BY id DESC")]
 
 
-def save_discovered(records, path=None):
+def save_discovered(records, path=None, *, with_counts=False):
     with connection(path) as db:
         db.execute("BEGIN IMMEDIATE")
         existing = [json.loads(row[0]) for row in db.execute("SELECT payload FROM discovered")]
-        added = 0
+        counts = dict(added=0, duplicates=0, invalid=0, **{label: 0 for label in CLASSIFICATIONS})
         for item in records:
             if item.get("is_demo") is not False or not item.get("source_url"):
+                counts["invalid"] += 1
                 continue
+            item = normalize_record(item)
             if not is_duplicate(item, existing):
                 db.execute("INSERT INTO discovered (payload) VALUES (?)", (json.dumps(item),))
                 existing.append(item)
-                added += 1
-        return added
+                counts["added"] += 1
+                counts[item["classification"]] += 1
+            else:
+                counts["duplicates"] += 1
+        return counts if with_counts else counts["added"]
 
 
 def cached_search(query, path=None):

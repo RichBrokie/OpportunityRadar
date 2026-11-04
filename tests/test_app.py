@@ -54,6 +54,8 @@ def test_discovery_is_explicit_and_survives_reruns(tmp_path, monkeypatch):
     app.button[0].click().run()
     assert not app.exception
     assert client.search.call_count == 1
+    assert not cards(app)  # Sparse snippets belong in review, never the likely list.
+    app.radio(key='classification_filter').set_value('Needs review').run()
     assert len(cards(app)) == 1
     assert 'Student hackathon' in cards(app)[0]
     app.text_input(key='browse_filter').set_value('student').run()
@@ -71,7 +73,7 @@ def test_dashboard_search_and_quick_navigation(tmp_path, monkeypatch):
     from opportunityradar import discovery
     monkeypatch.setenv('OPPORTUNITYRADAR_DB', str(tmp_path / 'dashboard.sqlite3'))
     client = MagicMock()
-    client.search.return_value = {'results': [{'title': 'Research internship', 'url': 'https://example.org/apply', 'content': 'Research for students'}]}
+    client.search.return_value = {'results': [{'title': 'Cedar research internship', 'url': 'https://example.org/apply', 'content': 'Research for students'}]}
     monkeypatch.setattr(discovery, 'TavilyClient', MagicMock(return_value=client))
     app = AppTest.from_file(str(APP)).run()
     client.search.assert_not_called()
@@ -89,3 +91,45 @@ def test_dashboard_search_and_quick_navigation(tmp_path, monkeypatch):
     assert len(cards(app)) == 1
     app.selectbox(key='sort_order').set_value('Title A–Z').run()
     assert client.search.call_count == 1
+
+
+def test_triage_views_details_safe_rendering_and_demo_separation(tmp_path, monkeypatch):
+    from opportunityradar.discovery import parse_result
+    from opportunityradar.storage import initialize, save_discovered
+    path = tmp_path / 'triage.sqlite3'
+    monkeypatch.setenv('OPPORTUNITYRADAR_DB', str(path))
+    initialize(path)
+    raw = 'Organization: Cedar Lab\nLocation: remote\nFunding: funded\nEligibility: Undergraduates\nApply for a 12 week placement. Apply for a 12 week placement. <img src=x onerror="alert(1)">'
+    rows = [
+        ('Cedar internship', 'https://school.edu/apply', raw, 'Internship', '2026-11-01'),
+        ('Orbit scholarship', 'https://school.edu/scholarships/orbit', 'Students may apply.', 'Scholarship', '2026-11-04'),
+        ('Student hackathon', 'https://example.org/event', '', 'Hackathon', '2026-11-03'),
+        ('Top 10 internships', 'https://example.org/blog', 'Read our guide.', 'Internship', '2026-11-02'),
+    ]
+    save_discovered([parse_result(dict(title=t, url=u, content=c), cat, when) for t, u, c, cat, when in rows], path)
+    app = AppTest.from_file(str(APP)).run()
+    assert len(cards(app)) == 2
+    assert not any('Student hackathon' in card or 'Top 10' in card for card in cards(app))
+    app.sidebar.radio[0].set_value('Opportunities').run()
+    assert len(cards(app)) == 2
+    app.selectbox(key='sort_order').set_value('Recently discovered').run()
+    assert 'Orbit scholarship' in cards(app)[0]
+    app.multiselect(key='category_filter').set_value(['Internship']).run()
+    assert len(cards(app)) == 1
+    card = cards(app)[0]
+    assert card.count('Unverified') == 1
+    assert card.count('Apply for a 12 week placement.') == 1
+    assert 'https://' not in card and '<img' not in card
+    assert 'Eligibility' not in card and 'Discovered:' not in card
+    assert all(button.proto.label == 'View source' for button in app.get('link_button'))
+    details = next(exp for exp in app.expander if exp.label == 'More details')
+    assert any(entry.value == raw for entry in details.text)
+    assert any(entry.value == 'https://school.edu/apply' for entry in details.text)
+    app.multiselect(key='category_filter').set_value([]).run()
+    app.radio(key='classification_filter').set_value('Needs review').run()
+    assert len(cards(app)) == 1 and 'Student hackathon' in cards(app)[0]
+    app.radio(key='classification_filter').set_value('Irrelevant').run()
+    assert len(cards(app)) == 1 and 'Top 10' in cards(app)[0]
+    app.radio(key='collection').set_value('Demo').run()
+    assert len(cards(app)) == 6 and all('DEMO' in card for card in cards(app))
+    assert not app.exception
